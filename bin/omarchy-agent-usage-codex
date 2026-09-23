@@ -545,10 +545,17 @@ def fetch_codex_rpc():
     proc.stdin.write(json.dumps({"method": "initialized", "params": {}}) + "\n")
     proc.stdin.flush()
     account_msg = rpc_request(proc, 2, "account/read", timeout=4)
-    limits_msg = rpc_request(proc, 3, "account/rateLimits/read", timeout=4)
+    # A cold app-server start can overrun the limits timeout under load. A
+    # timeout there forfeits only the limits, not the account already read.
+    try:
+      limits_msg = rpc_request(proc, 3, "account/rateLimits/read", timeout=8)
+    except TimeoutError:
+      limits_msg = None
+      result["usageStatusText"] = "Codex limits timed out"
+      result["authHelpText"] = "account/rateLimits/read timed out; try again shortly"
 
     account = (account_msg.get("result") or {}).get("account") or {}
-    limits = (limits_msg.get("result") or {}).get("rateLimits") or {}
+    limits = ((limits_msg or {}).get("result") or {}).get("rateLimits") or {}
     plan = limits.get("planType") or account.get("planType") or account.get("type") or ""
     result["tierLabel"] = str(plan) if plan else ""
 
