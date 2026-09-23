@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# omarchy:summary=Detect whether an NVIDIA GPU is the system's boot (primary) VGA.
+
+# On a hybrid laptop the iGPU is the boot VGA and does the compositing while
+# the dGPU merely exists, so NVIDIA-vendor session variables must not be
+# exported. A device without the boot_vga attribute reads as primary:
+# single-GPU setups and VMs behaved as NVIDIA-primary before this check.
+#
+# Read the cached sysfs IDs rather than lspci, which reads PCI config space and
+# resumes runtime-suspended GPUs.
+pci_devices_path="${OMARCHY_PCI_DEVICES_PATH:-/sys/bus/pci/devices}"
+
+shopt -s nullglob
+
+for device in "$pci_devices_path"/*; do
+  [[ $(< "$device/vendor") == "0x10de" ]] || continue
+  [[ $(< "$device/class") == 0x03* ]] || continue
+  [[ ! -e $device/boot_vga || $(< "$device/boot_vga") == "1" ]] && exit 0
+done
+
+exit 1
