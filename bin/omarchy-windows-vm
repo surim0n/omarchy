@@ -1408,6 +1408,10 @@ launch_windows() {
   [[ -z $WIN_PASS ]] && WIN_PASS="admin"
 
   echo "Starting Windows VM (this may prompt for authorization)..."
+  # A cold start needs the warm-up window below: the guest's RDP service
+  # trails the "Windows started successfully" log line by tens of seconds.
+  vm_was_running=false
+  [[ $(priv status) == "running" ]] && vm_was_running=true
   if ! priv up_wait; then
     echo "❌ Failed to start Windows VM!"
     echo "   Try checking: omarchy-windows-vm status"
@@ -1481,7 +1485,24 @@ To stop: omarchy-windows-vm stop"
   # to every other user on the machine for as long as the session is open.
   # /args-from must stay the only argument here — FreeRDP rejects it outright
   # when it is combined with any other, so new flags belong in RDP_ARGS above.
-  printf '%s\n' "${RDP_ARGS[@]}" | xfreerdp3 /args-from:stdin
+  # On a cold start the container's RDP proxy accepts the connection before
+  # the guest's RDP service is up, so FreeRDP fails with a reset and the very
+  # first attempt can never succeed. A real disconnect exits 0, so only a
+  # failure retries, and only while the guest can still be finishing booting.
+  rdp_attempts=1
+  [[ $vm_was_running = "false" ]] && rdp_attempts=24
+  rdp_attempt=0
+  while true; do
+    ((++rdp_attempt))
+    if printf '%s\n' "${RDP_ARGS[@]}" | xfreerdp3 /args-from:stdin; then
+      break
+    elif ((rdp_attempt < rdp_attempts)); then
+      echo "Windows is still booting; retrying the connection in 5s ($rdp_attempt/$rdp_attempts)..."
+      sleep 5
+    else
+      break
+    fi
+  done
 
   # After RDP closes, stop the container unless --keep-alive was specified
   if [[ $KEEP_ALIVE = "false" ]]; then
