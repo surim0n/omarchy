@@ -427,6 +427,13 @@ Panel {
     if (!volumeSink || !volumeSink.audio) return outputVolume
     var volume = Math.max(0, Math.min(1, v))
     volumeSink.audio.volume = volume
+    // Quickshell's PwNodeBoundAudio drops the volume write for device-routed
+    // nodes — any sink with card.profile.device, which is every Bluetooth
+    // output — when the card route publishes no volumeStep. The property
+    // above still moves the slider, so send the real write through pactl.
+    var props = volumeSink.properties || {}
+    if (String(props["card.profile.device"] || "") !== "")
+      Quickshell.execDetached(["pactl", "set-sink-volume", String(volumeSink.name), Math.round(volume * 100) + "%"])
     return volume
   }
 
